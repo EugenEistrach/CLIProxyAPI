@@ -159,7 +159,10 @@ access:
 
 # Routing strategy for selecting credentials when multiple match.
 routing:
-  strategy: "round-robin" # round-robin (default), weighted-round-robin, fill-first
+  strategy: "round-robin" # round-robin (default), weighted-round-robin, fill-first, reset-aware
+  # reset-aware spreads new conversations across subscriptions by weekly allowance left per hour until its
+  # weekly reset (Anthropic unified rate-limit headers), so allowance that expires soonest is used fastest;
+  # a credential at 90% of its five-hour or 97% of its weekly window gets no new conversations.
   # weighted-round-robin uses each credential's integer weight (default 1, maximum 1,000,000).
   # Non-positive weights exclude the credential while this strategy is active.
   # For OAuth/file credentials, add a top-level numeric "weight" field to the auth JSON.
