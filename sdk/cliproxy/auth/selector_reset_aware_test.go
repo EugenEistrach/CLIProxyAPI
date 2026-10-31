@@ -144,3 +144,50 @@ func TestResetAwareSelector_RecordsEveryCandidateAndWhy(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeUsageSignals_ConvertTheUsageEndpointIntoUnifiedSignals(t *testing.T) {
+	body := []byte(`{"five_hour":{"utilization":29.0,"resets_at":"2026-10-31T11:00:00.229384+00:00"},
+		"seven_day":{"utilization":44.0,"resets_at":"2026-11-02T01:59:59.887150+00:00"}}`)
+
+	signals, err := claudeUsageSignals(body)
+	if err != nil {
+		t.Fatalf("claudeUsageSignals() error = %v", err)
+	}
+	want := map[string]string{
+		"Anthropic-Ratelimit-Unified-5h-Utilization": "0.29",
+		"Anthropic-Ratelimit-Unified-5h-Reset":       "1793444400",
+		"Anthropic-Ratelimit-Unified-7d-Utilization": "0.44",
+		"Anthropic-Ratelimit-Unified-7d-Reset":       "1793584799",
+	}
+	for key, value := range want {
+		if signals[key] != value {
+			t.Fatalf("signals[%s] = %q, want %q (all: %v)", key, signals[key], value, signals)
+		}
+	}
+
+	unusedFiveHour, err := claudeUsageSignals([]byte(`{"five_hour":{"utilization":0.0,"resets_at":null},"seven_day":{"utilization":100.0,"resets_at":"2026-10-31T20:59:59Z"}}`))
+	if err != nil || unusedFiveHour["Anthropic-Ratelimit-Unified-5h-Reset"] != "" || unusedFiveHour["Anthropic-Ratelimit-Unified-7d-Utilization"] != "1" {
+		t.Fatalf("unused five-hour window: %v, %v", unusedFiveHour, err)
+	}
+
+	if _, err := claudeUsageSignals([]byte(`{"five_hour":null,"seven_day":null}`)); err == nil {
+		t.Fatal("want an error without a weekly window")
+	}
+}
+
+func TestApplyClaudeUsage_TheSelectorSeesPolledNumbers(t *testing.T) {
+	manager := NewManager(nil, &ResetAwareSelector{now: func() time.Time { return resetAwareNow }}, nil)
+	if _, err := manager.Register(context.Background(), &Auth{ID: "polled", Provider: "claude", Label: "polled"}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	manager.applyClaudeUsage("polled", map[string]string{
+		"Anthropic-Ratelimit-Unified-7d-Utilization": "0.44",
+		"Anthropic-Ratelimit-Unified-7d-Reset":       strconv.FormatInt(resetAwareNow.Add(43*time.Hour).Unix(), 10),
+	}, resetAwareNow)
+
+	auth, _ := manager.GetByID("polled")
+	candidate := resetAwareCandidateOf(auth, resetAwareNow)
+	if !candidate.WeeklyObserved || candidate.WeeklyUtilization != 0.44 || candidate.WeeklyResetsAt.Sub(resetAwareNow) != 43*time.Hour {
+		t.Fatalf("candidate = %+v", candidate)
+	}
+}
