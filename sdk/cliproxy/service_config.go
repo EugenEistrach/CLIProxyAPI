@@ -60,6 +60,7 @@ type routingRuntimeState struct {
 	sessionAffinityTTL       time.Duration
 	sessionAffinitySubagents bool
 	sessionAffinityRebindOn  string
+	resetAwareReserve        coreauth.ResetAwareReserve
 }
 
 func normalizedRoutingRuntimeState(cfg *config.Config) routingRuntimeState {
@@ -96,7 +97,29 @@ func normalizedRoutingRuntimeState(cfg *config.Config) routingRuntimeState {
 	if state.sessionAffinity && strings.EqualFold(strings.TrimSpace(cfg.Routing.SessionAffinityRebindOn), coreauth.SessionAffinityRebindOnQuota) {
 		state.sessionAffinityRebindOn = coreauth.SessionAffinityRebindOnQuota
 	}
+	if state.strategy == "reset-aware" {
+		state.resetAwareReserve = normalizedResetAwareReserve(cfg.Routing.ResetAwareReserve)
+	}
 	return state
+}
+
+func normalizedResetAwareReserve(cfg *config.ResetAwareReserveConfig) coreauth.ResetAwareReserve {
+	if cfg == nil || strings.TrimSpace(cfg.Account) == "" || cfg.Percent <= 0 {
+		return coreauth.ResetAwareReserve{}
+	}
+	reserve := coreauth.ResetAwareReserve{
+		Account: strings.TrimSpace(cfg.Account),
+		Share:   min(cfg.Percent, 100) / 100,
+	}
+	if raw := strings.TrimSpace(cfg.ReleaseBeforeReset); raw != "" {
+		parsed, errParse := time.ParseDuration(raw)
+		if errParse != nil || parsed < 0 {
+			log.Warnf("routing.reset-aware-reserve.release-before-reset %q is not a duration; the reserve is never released", raw)
+		} else {
+			reserve.ReleaseBefore = parsed
+		}
+	}
+	return reserve
 }
 
 func newRoutingSelector(state routingRuntimeState) coreauth.Selector {
@@ -107,7 +130,7 @@ func newRoutingSelector(state routingRuntimeState) coreauth.Selector {
 	case "fill-first":
 		selector = &coreauth.FillFirstSelector{}
 	case "reset-aware":
-		selector = &coreauth.ResetAwareSelector{}
+		selector = &coreauth.ResetAwareSelector{Reserve: state.resetAwareReserve}
 	default:
 		selector = &coreauth.RoundRobinSelector{}
 	}

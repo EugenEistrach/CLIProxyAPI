@@ -160,9 +160,15 @@ access:
 # Routing strategy for selecting credentials when multiple match.
 routing:
   strategy: "round-robin" # round-robin (default), weighted-round-robin, fill-first, reset-aware
-  # reset-aware spreads new conversations across subscriptions by weekly allowance left per hour until its
-  # weekly reset (Anthropic unified rate-limit headers), so allowance that expires soonest is used fastest;
-  # a credential at 90% of its five-hour or 97% of its weekly window gets no new conversations.
+  # reset-aware keeps every subscription on pace with its own week: a new conversation goes to the one
+  # furthest behind its pace (share of its week passed minus weekly usage), so weight moves to a subscription
+  # as its reset nears with allowance left and none is drained ahead of the others. A credential at 99% weekly
+  # or 90% of its five-hour window, or at its reserve, gets no conversations, not even ones already bound to it.
+  # reset-aware-reserve keeps part of one account's week for use outside the proxy (the Claude app):
+  # reset-aware-reserve:
+  #   account: "you@example.com" # credential label (email) or ID
+  #   percent: 20
+  #   release-before-reset: "12h" # the reserve is released this long before the account's weekly reset
   # weighted-round-robin uses each credential's integer weight (default 1, maximum 1,000,000).
   # Non-positive weights exclude the credential while this strategy is active.
   # For OAuth/file credentials, add a top-level numeric "weight" field to the auth JSON.

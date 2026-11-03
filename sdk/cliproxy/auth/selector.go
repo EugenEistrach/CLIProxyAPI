@@ -659,6 +659,31 @@ func (s *RoundRobinSelector) ensureRotationKey(key string, limit int) {
 	}
 }
 
+// heldBackSelector is a fallback selector that can take a credential out of use entirely, so
+// session affinity moves even conversations already bound to it.
+type heldBackSelector interface {
+	HoldsBack(auth *Auth) bool
+}
+
+// withoutHeldBackAuths drops the credentials the fallback selector holds back. When it holds back
+// every credential, all of them stay, so the fallback still picks one and requests go out.
+func withoutHeldBackAuths(fallback Selector, auths []*Auth) []*Auth {
+	gate, ok := fallback.(heldBackSelector)
+	if !ok || len(auths) == 0 {
+		return auths
+	}
+	kept := make([]*Auth, 0, len(auths))
+	for _, auth := range auths {
+		if !gate.HoldsBack(auth) {
+			kept = append(kept, auth)
+		}
+	}
+	if len(kept) == 0 {
+		return auths
+	}
+	return kept
+}
+
 func positiveWeightAuths(auths []*Auth) []*Auth {
 	weightedCandidates := make([]*Auth, 0, len(auths))
 	for _, auth := range auths {
@@ -1099,6 +1124,7 @@ func (s *SessionAffinitySelector) Trees() *cliproxysession.InMemorySessionTreeSt
 // that may be supported by different auth credentials, and to avoid cross-provider conflicts.
 func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
 	entry := selectorLogEntry(ctx)
+	auths = withoutHeldBackAuths(s.fallback, auths)
 	if opts.Metadata == nil {
 		opts.Metadata = make(map[string]any)
 	}

@@ -487,6 +487,19 @@ type RoutingConfig struct {
 	//     auth errors (429, 401/402/403, 404/model support, invalid_grant) rebind as normal.
 	// Ignored when SessionAffinity is false.
 	SessionAffinityRebindOn string `yaml:"session-affinity-rebind-on,omitempty" json:"session-affinity-rebind-on,omitempty"`
+
+	// ResetAwareReserve keeps part of one subscription's week for use outside this proxy.
+	// Only used by the "reset-aware" strategy.
+	ResetAwareReserve *ResetAwareReserveConfig `yaml:"reset-aware-reserve,omitempty" json:"reset-aware-reserve,omitempty"`
+}
+
+// ResetAwareReserveConfig keeps Percent of Account's weekly allowance away from this proxy until
+// ReleaseBeforeReset (a duration such as "12h") before the account's weekly reset.
+type ResetAwareReserveConfig struct {
+	// Account matches a credential's label (email) or ID.
+	Account            string  `yaml:"account" json:"account"`
+	Percent            float64 `yaml:"percent" json:"percent"`
+	ReleaseBeforeReset string  `yaml:"release-before-reset,omitempty" json:"release-before-reset,omitempty"`
 }
 
 // OAuthModelAlias defines a model ID alias for a specific channel.
